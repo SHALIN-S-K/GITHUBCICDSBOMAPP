@@ -1,0 +1,56 @@
+# ============================================================
+# SBOM generation for GitHub Actions, via the sbomapp-cli CLI.
+#
+# The CLI (installed below from this same SBOMApp instance) generates a CycloneDX SBOM
+# and uploads it to SBOMApp in one step. The SBOM engine underneath is an internal
+# implementation detail of the CLI and is never invoked directly here.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   SBOMAPP_API_URL  - https://your-sbomapp-host/api/sbom/ingest
+#   SBOMAPP_API_KEY  - API key generated in SBOMApp Settings → CI/CD Integration
+# ============================================================
+
+name: SBOM Generation and Upload
+
+on:
+  push:
+    branches:
+      - '*'
+    tags:
+      - '*'
+  workflow_dispatch:
+
+env:
+  TARGET_PATH: "."
+  SBOMAPP_API_URL: ${{ secrets.SBOMAPP_API_URL }}
+
+jobs:
+  sbom_scan:
+    name: sbomapp-cli scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install SBOMApp CLI
+        run: |
+          set -e
+          # Bootstrap: fetch and run the SBOMApp CLI installer from this same SBOMApp
+          # instance. The download origin is derived from SBOMAPP_API_URL, never
+          # hardcoded, so this works identically against SaaS, on-prem, or an AMI.
+          SBOMAPP_ORIGIN=$(echo "$SBOMAPP_API_URL" | sed -E 's#^(https?://[^/]+).*#\1#')
+          curl -fsSL "$SBOMAPP_ORIGIN/cli/install.sh" | sh
+
+      - name: sbomapp-cli scan
+        env:
+          SBOMAPP_API_KEY: ${{ secrets.SBOMAPP_API_KEY }}
+        run: |
+          set -e
+          echo "📦 Scanning ${{ github.event.repository.name }} with sbomapp-cli..."
+          sbomapp-cli scan --project "${{ github.event.repository.name }}" --path "$TARGET_PATH"
+          echo "✅ Scan complete"
